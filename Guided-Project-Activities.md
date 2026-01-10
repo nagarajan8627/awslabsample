@@ -1,301 +1,297 @@
-# Guided Project: Implement IAM Roles for Service Accounts (IRSA) in EKS for Fine-Grained Access Control
-
----
+# Guided Project: Create a Docker Container using Dockerfile and Store the Image in ECR
 
 ## Overview
 
-In this lab, you will implement IAM Roles for Service Accounts (IRSA) in Amazon EKS. This allows Kubernetes pods to securely access AWS resources such as S3 and DynamoDB with fine-grained permissions, following the principle of least privilege. This guide is written for **absolute beginners** with step-by-step instructions.
+In this project, you will build a Docker container image, push it to **Amazon Elastic Container Registry (ECR)**, and deploy it on an **Amazon ECS cluster with EC2 launch type**.  
+You will also configure IAM roles, ECS services, and validate your application via a web browser.  
+
+This project provides **hands-on experience** with ECS, EC2, ECR, Docker, and IAM.
+
+---
 
 ## Scenario
 
-A growing fintech startup runs multiple microservices on Amazon EKS. One service, **"analytics-service"**, aggregates and processes financial reports stored in an S3 bucket, while another service, **"payments-service"**, handles user payment transactions stored in a DynamoDB table. Previously, all pods used a single node IAM role, granting broad permissions and increasing security risk.
+Imagine your company wants to deploy a **custom web server (HTTPD)** to serve a simple internal webpage.  
+The DevOps team must ensure that the **Docker image is stored in ECR**, EC2 instances in ECS can **pull the image securely**, and the application is **accessible on port 80** via the EC2 public IP.
 
-The DevOps team now wants to implement **IAM Roles for Service Accounts (IRSA)** to enforce **least-privilege access**, ensuring each pod can access only the resources it needs and improving auditability and security compliance.
+---
 
 ## What You Will Learn
 
-* Enable IRSA in an EKS cluster.
-* Create IAM policies for specific AWS resources.
-* Create IAM roles and associate them with Kubernetes service accounts.
-* Deploy pods that assume these roles.
-* Verify least privilege access to AWS resources.
-* Monitor access and follow best practices.
+* Build a **Docker image** and push it to ECR.  
+* Create the required **IAM roles** for ECS task execution and ECR access.  
+* Launch an **ECS cluster** using the EC2 launch type.  
+* Define an **ECS task definition** with proper IAM role, port mapping, and logging.  
+* Create an **ECS service** to deploy the container.  
+* Test and validate the application using the **EC2 instance public IP**.  
+
+
+---
 
 ## Prerequisites
 
-* AWS account with administrator access.
-* Basic understanding of AWS services (S3, DynamoDB, IAM) and Kubernetes.
-* AWS CLI installed (or using AWS CloudShell).
-* `kubectl` installed or configured in CloudShell.
-* A browser to access AWS Console.
+* An AWS account with administrator access.  
+* IAM user with the following permissions:  
+  * `ecs:*`, `ec2:*`, `ecr:*`, `iam:*`, `autoscaling:*`, `logs:*`.  
+* Docker installed locally or AWS CloudShell.  
+* Basic knowledge of Dockerfiles and AWS services.  
 
-## What You Will Do in This Module
-
-1. Open CloudShell and set up the environment.
-2. Create and verify a managed EKS cluster.
-3. Enable IAM OIDC provider for IRSA.
-4. Create S3 bucket and DynamoDB table.
-5. Define fine-grained IAM policies for each resource.
-6. Create trust policies and Kubernetes service accounts.
-7. Create IAM roles and attach policies.
-8. Annotate service accounts with IAM roles.
-9. Deploy pods with respective service accounts.
-10. Verify least-privilege access and test resource restrictions.
+---
 
 ## Skill Tags
 
-- AWS 
-- EKS 
-- Kubernetes 
-- IAM 
-- IRSA 
-- S3 
-- DynamoDB 
-- DevOps 
-- Security
+`AWS` `ECS` `ECR` `EC2` `Docker` `IAM` `DevOps`
 
 ---
+
 ## Implementation
 
-**Real-world Use Case**
+**Real-world Use Case:**  
+A startup wants to deploy a lightweight **dashboard application** for their internal teams. Instead of installing Apache manually on EC2, they containerize it using Docker and store the image in **Amazon ECR**.  
+With **ECS + EC2 launch type**, they standardize deployments, simplify updates (push new images to ECR), and scale easily when traffic grows.  
 
-The fintech company wants to ensure each microservice can access only the AWS resources it requires. With IRSA:
+This ensures **fast deployment, centralized image storage, and simple scaling**.
 
-To address the security and access challenges, the DevOps team implements IAM Roles for Service Accounts (IRSA):
+---
 
-* **Analytics-service** pod assumes a service account linked to an IAM role granting S3 access only.
+## What You Will Do in This Module
 
-* **Payments-service** pod assumes a service account linked to an IAM role granting DynamoDB access only.
+1. Write a **Dockerfile** and build a custom HTTPD image.  
+2. Create an **ECR repository**.  
+3. Push the Docker image to **ECR**.  
+4. Configure required **IAM roles** (`ecsInstanceRole`, `ecsTaskExecutionRole`).  
+5. Launch an **ECS Cluster with EC2 instances**.  
+6. Create an **ECS Task Definition** with proper role, port mapping, and logging.  
+7. Create an **ECS Service** and deploy the container.  
+8. Test your application using the **Public IP** of the EC2 instance.  
 
-This approach ensures pods have restricted access, no credentials are stored locally, and all actions are auditable, following best practices for pod-level security.
+---
+
+## What You Will Be Provided With
+
+* Step-by-step AWS Console instructions with screenshots.  
+* A **Dockerfile template** for Apache HTTPD.  
+* Example **ECS Task Definition JSON**.   
+* An **architecture diagram** showing how ECS, EC2, and ECR work together.  
 
 ---
 
 ## Project Architecture
 
-This project implements IRSA in EKS to provide fine-grained access control for pods.
+**Flow:**  
 
-* **EKS Cluster (fintech-cluster)**: Hosts pods for microservices.
-* **Service Accounts**:
-  * report-sa → S3 access
-  * transaction-sa → DynamoDB access
-* **IAM Roles & Policies**: Grant least-privilege access to respective AWS resources.
-* **AWS Resources**:
-  * S3 bucket (fintech-reports-bucket)
-  * DynamoDB table (fintech-transactions)
-* **Monitoring**: CloudTrail for auditing, CloudWatch for logs.
+1. Developer builds Docker image → pushes to **ECR**.  
+2. **ECS Cluster (EC2 instances)** pulls image from ECR.  
+3. **ECS Task Definition** + **Service** launch the container.  
+4. End user accesses webpage via **EC2 Public IP on port 80**.  
 
-![project-architecture](images/architecture-diagram.png)
+![architecture-diagram](images/architecture-diagram.png)
 
-## Activity 1: Open AWS CloudShell
 
-1. Log in to your AWS account via browser.
-2. On the top-right, click the **CloudShell** icon to open the terminal.
-3. Wait for CloudShell to initialize (1-2 minutes).
-
-   ![cloudshell](images/pic-cloudshell.png)
 
 ---
 
-## Activity 2: Create an EKS Cluster
+## Activities
 
-**Step 2.1: Install eksctl (execute in CloudShell)**
+### Activity 1: Create ECR Repository
 
-```bash
-curl --silent --location "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" | tar xz -C /tmp
-sudo mv /tmp/eksctl /usr/local/bin
-eksctl version
-```
-
-**Step 2.2: Create the EKS cluster**
-
-```bash
-eksctl create cluster \
-  --name fintech-cluster \
-  --version 1.28 \
-  --region us-east-1 \
-  --nodegroup-name fintech-nodes \
-  --node-type t3.medium \
-  --nodes 2 \
-  --nodes-min 2 \
-  --nodes-max 3 \
-  --managed
-```
-
-* **Explanation:** Creates a managed EKS cluster with 2 nodes, scalable between 2-3.
-* Wait for 10-15 minutes until complete.
-
-![eks-create-cluster](images/pic6.png)
-
-**Step 2.3: Verify nodes are ready**
-
-```bash
-kubectl get nodes
-```
-
-* **Explanation:** Ensures EKS nodes are ready to schedule pods.
-  ![eks-nodes](images/pic7.png)
+1. Go to **AWS Console → ECR → Create Repository**.
+2. Repository name: `custom-httpd-repo`
+3. Keep other options as default and click **Create Repository**.
+![ecr-repo](images/pic2.png)
+4. The repository is now created.
+![ecr-repo-created](images/pic3.png)
 
 ---
 
-## Activity 3: Enable IAM OIDC Provider
+### Activity 2: Create HTML File for Container
 
-```bash
-eksctl utils associate-iam-oidc-provider \
-  --cluster fintech-cluster \
-  --approve
+1. Open CloudShell.
+![cloudshell](images/pic4.png)
+
+2. Create a file named `index.html` with your content:
+![vi-index.html](images/pic5.png)
+
+4. Click **i** to enter INSERT mode and paste the following content.
+
+```html
+<h1>Hello from ECS HTTPD!</h1>
 ```
+![index.html](images/pic6.png)
 
-* **Explanation:** Required for pods to assume IAM roles securely.
-  ![oidc-provider](images/pic8.png)
+5. Press **esc** and then type **:wq** to save the file.
+
+> Note: Save this file in the same directory as your Dockerfile.
 
 ---
 
-## Activity 4: Create AWS Resources (S3 and DynamoDB)
+### Activity 3: Build Docker Image 
 
-### Step 4.1: Create S3 Bucket
+> **Note:** It’s recommended to build images from AWS CloudShell or your local terminal, not from ECS cluster instances.
 
-* Navigate to **S3 → Create Bucket**.
-* Give a Bucket Name starting with: `fintech-reports-bucket`
-> Note: S3 Bucket names should be globally unique. So add a Unique suffix to the above name.
+1. Create a `Dockerfile`:
+![index.html](images/pic7.png)
 
-* Region: `us-east-1`
-* Click **Create Bucket**.
-* **Explanation:** Bucket to store report files.
-  ![s3-bucket](images/pic1.png)
+```dockerfile
+FROM alpine:latest
 
-### Step 4.2: Create DynamoDB Table
+MAINTAINER someone@example.com
 
-* Navigate to **DynamoDB → Create Table**.
-* Table Name: `fintech-transactions`
-* Partition Key: `TransactionID` (String)
-* Leave other values to default.
-* Click **Create Table**
-* **Explanation:** Table for storing transaction records.
-  ![dynamodb-table](images/pic2.png)
+# Install Apache (httpd) and clean cache
+RUN apk add --no-cache apache2
+
+# Copy website content
+COPY index.html /var/www/localhost/htdocs/
+
+# Expose port 80 for Apache
+EXPOSE 80
+
+# Start Apache in the foreground
+CMD ["httpd", "-D", "FOREGROUND"]
+
+
+```
+
+2. Build Docker image:
+
+```bash
+docker build -t custom-httpd-repo .
+```
+![docker-build](images/pic8.png)
+3. Tag the image for ECR:
+
+```bash
+docker tag custom-httpd-repo:latest <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/custom-httpd-repo:latest
+```
+> Note: Make sure to replace the <ACCOUNT_ID> fields with your Account ID which is visible on right top corner of your AWS console.
+
+![docker-tag](images/pic9.png)
 
 ---
 
-## Activity 5: Create IAM Policies
+### Activity 4: Push Docker Image to ECR
 
-### Step 5.1: S3 Policy
-
-
-Run the following command to create `s3-policy.json`:
-
-```
-cat <<EOF > s3-policy.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket",
-        "s3:GetObject",
-        "s3:PutObject"
-      ],
-      "Resource": [
-        "arn:aws:s3:::<BUCKET_NAME>",
-        "arn:aws:s3:::<BUCKET_NAME>/*"
-      ]
-    }
-  ]
-}
-EOF
-
-```
-> Replace `<BUCKET_NAME>` with your s3 bucket name.
+1. Authenticate Docker to ECR:
 
 ```bash
-aws iam create-policy --policy-name FintechS3Policy --policy-document file://s3-policy.json
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
 ```
+> Note: Make sure to replace the <ACCOUNT_ID> fields with your Account ID which is visible on right top corner of your AWS console.
 
-### Step 5.2: DynamoDB Policy
-
-Run the following command to create `dynamodb-policy.json`:
-
-```
-cat <<EOF > dynamodb-policy.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:PutItem",
-        "dynamodb:GetItem",
-        "dynamodb:Scan",
-        "dynamodb:Query"
-      ],
-      "Resource": [
-        "arn:aws:dynamodb:us-east-1:<ACCOUNT_ID>:table/fintech-transactions",
-        "arn:aws:dynamodb:us-east-1:<ACCOUNT_ID>:table/fintech-transactions/*"
-      ]
-    }
-  ]
-}
-EOF
-
-```
-
-> Replace `<ACCOUNT_ID>` with your AWS account ID.
+![aws-ecr](images/pic11.png)
+2. Push image:
 
 ```bash
-aws iam create-policy --policy-name FintechDynamoPolicy --policy-document file://dynamodb-policy.json
+docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/custom-httpd-repo:latest
 ```
+> Note: Make sure to replace the <ACCOUNT_ID> fields with your Account ID which is visible on right top corner of your AWS console.
 
-* **Explanation:** Grants pods permission to access only respective AWS resources.
+![docker-push](images/pic12.png)
+
+3. You can find the image being pushed to the ECR repository on the ECR console.
+![image-pushed](images/pic13.png)
+
+---
+### Activity 5: Create IAM Roles for ECS and ECR Access
+
+To allow ECS to pull images from ECR and write logs, you need **two roles**:
+
+#### 1. ecsInstanceRole (for the EC2 instances in your cluster)
+
+1. Go to **IAM Console → Roles → Create role → AWS service → EC2**.
+2. Attach policies:
+`AmazonEC2ContainerServiceforEC2Role`
+`AmazonEC2ContainerRegistryPowerUser`
+3. Name the role **ecsInstanceRole**.
+
+   * This is required so ECS container instances (EC2) can pull/push images from ECR.  
+4. Create the role.
+
+![ecs-instance-role](images/har2.png)
 
 ---
 
-## Activity 6: Create IAM Roles and Kubernetes Service Accounts
+#### 2. ecsTaskExecutionRole (for ECS tasks)
 
-### Get OIDC Provider Name using AWS CLI
+1. Go to **IAM Console → Roles → Create role**.  
+2. Choose:  
+   - **Trusted entity type:** AWS service  
+   - **Use case:** **Elastic Container Service → Elastic Container Service Task**  
+   ![role1](images/role1.png)
+3. Click **Next** → Attach the following policies:  
+   - `AmazonECSTaskExecutionRolePolicy`  
+   - `AmazonEC2ContainerRegistryReadOnly` (to pull image from ECR) 
 
-Run the following command to get your EKS cluster’s OIDC provider:
+4. Give the role the name:  `ecsTaskExecutionRole`.
+![role2](images/role2.png) 
+5. Finish and create the role. 
 
-```bash
-aws eks describe-cluster \
-  --name fintech-cluster \
-  --region us-east-1 \
-  --query "cluster.identity.oidc.issuer" \
-  --output text
-```
+---
 
-> **Note:** The OIDC provider name is the full URL returned above.
 
->**Note:** When creating the IAM OIDC provider, remove the https:// prefix.
-For example:
-`oidc.eks.us-east-2.amazonaws.com/id/EXAMPLED539D4633E53DE1B71EXAMPLE`
+### Activity 6: Create ECS Cluster (EC2 Launch Type)
 
->The final ARN for IAM OIDC provider will look like:
-`arn:aws:iam::<ACCOUNT_ID>:oidc-provider/oidc.eks.<REGION>.amazonaws.com/id/EXA`
+1. Go to **ECS Console → Create Cluster**.
+2. Cluster name: `ecs-demo-cluster`
+3. Infrastructure: **Amazon EC2 Instances**
+4. Configure Auto Scaling Group:
 
-### Step 6.1: Create Trust Policy for IRSA Roles
+   * Provisioning model: On-Demand
+   * AMI: Amazon Linux 2023 ECS-optimized
+   ![ecs1](images/ecs1.png)
+   * Instance type: `t2.micro`
+   * Desired capacity: 1
+   * EC2 instance role: `ecsInstanceRole`
+   * SSH Key pair: `None - unable to SSH`
+   * Root volume: 30 GB
+   ![ecs2](images/har1.png)
 
-Create two trust policy JSON files—one for each service account.
 
-#### 6.0.1 Trust Policy for report-sa
-```bash
-vi report-sa-trust-policy.json
-```
+5. Networking:
 
-Paste:
+   * Use default VPC, select at least 2 subnets
+   * Create a security group allowing inbound TCP 22 (SSH) and TCP 80 (HTTP) from 0.0.0.0/0
+     ![ecs3](images/ecs3.png)
+
+6. Click **Create** and wait until EC2 instance is registered in the cluster.
+![ecs-created](images/ecs-created.png)
+
+### Activity 7: Create ECS Task Definition
+
+> Use **EC2 launch type** with proper port mapping.
+
+1. Go to **ECS → Task Definitions → Create new task definition with JSON**.
+![task-definition](images/pic14.png)
+2. JSON for your task definition:
+
 ```json
 {
-  "Version": "2012-10-17",
-  "Statement": [
+  "family": "custom-httpd-task",
+  "networkMode": "bridge",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
     {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_PROVIDER>"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "<OIDC_PROVIDER>:sub": "system:serviceaccount:default:report-sa",
-          "<OIDC_PROVIDER>:aud": "sts.amazonaws.com"
+      "name": "httpd-container",
+      "image": "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/custom-httpd-repo:latest",
+      "essential": true,
+      "memory": 512,
+      "cpu": 256,
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "hostPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/custom-httpd",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
         }
       }
     }
@@ -303,205 +299,74 @@ Paste:
 }
 
 ```
->**Note:** <OIDC_PROVIDER> should be replaced with your cluster’s OIDC URL (from eksctl utils describe-cluster --cluster <CLUSTER_NAME> or AWS console).
 
->**Note:** <ACCOUNT_ID> is your AWS account ID.
+![task-definition-json](images/pic15.png)
 
-#### 6.1.2 Trust Policy for transaction-sa
-```
-vi transaction-sa-trust-policy.json
-```
+> Note: For EC2 launch type, hostPort must be set to 80 for the webpage to be reachable.
 
-Paste:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_PROVIDER>"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "<OIDC_PROVIDER>:sub": "system:serviceaccount:default:transaction-sa",
-          "<OIDC_PROVIDER>:aud": "sts.amazonaws.com"
-        }
-      }
-    }
-  ]
-}
- 
-```
->**Note:** <OIDC_PROVIDER> should be replaced with your cluster’s OIDC URL (from eksctl utils describe-cluster --cluster <CLUSTER_NAME> or AWS console).
+> Note: Make sure to replace the <ACCOUNT_ID> fields with your Account ID which is visible on right top corner of your AWS console.
 
->**Note:** <ACCOUNT_ID> is your AWS account ID.
-
-### Step 6.2: Create Kubernetes Service Accounts
-
-```bash
-kubectl create serviceaccount report-sa -n default
-kubectl create serviceaccount transaction-sa -n default
-```
-
-* Verify:
-
-```bash
-kubectl get sa -n default
-```
-![service-accounts-created](images/pic-sa.png)
-
-### Step 6.3: Create IAM Roles for IRSA via CLI and Attach Policies
-
-```bash
-aws iam create-role \
-  --role-name report-sa-role \
-  --assume-role-policy-document file://report-sa-trust-policy.json \
-  --description "Role for report-sa to access S3 bucket"
-
-aws iam attach-role-policy \
-  --role-name report-sa-role \
-  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/FintechS3Policy
-
-aws iam create-role \
-  --role-name transaction-sa-role \
-  --assume-role-policy-document file://transaction-sa-trust-policy.json \
-  --description "Role for transaction-sa to access DynamoDB"
-
-aws iam attach-role-policy \
-  --role-name transaction-sa-role \
-  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/FintechDynamoPolicy
-```
-> Replace `<ACCOUNT_ID>` with your AWS account ID.
-
-### Step 6.4: Annotate Service Accounts
-
-```bash
-kubectl annotate serviceaccount report-sa \
-  -n default \
-  eks.amazonaws.com/role-arn=arn:aws:iam::<ACCOUNT_ID>:role/report-sa-role
-
-kubectl annotate serviceaccount transaction-sa \
-  -n default \
-  eks.amazonaws.com/role-arn=arn:aws:iam::<ACCOUNT_ID>:role/transaction-sa-role
-```
-> Replace `<ACCOUNT_ID>` with your AWS account ID.
-
-* Verify annotation:
-
-```bash
-kubectl get sa report-sa -n default -o yaml
-```
-![report-sa](images/pic-get-report-sa.png)
-
-```bash
-kubectl get sa transaction-sa -n default -o yaml
-```
-![transaction-sa](images/pic-get-transaction-sa.png)
-
-
-* **Explanation:** Links Kubernetes SA to IAM role.
+3. Task definition is created:
+![task-definition-created](images/pic16.png)
 
 ---
 
-## Activity 7: Deploy Pods Using Service Accounts
+### Activity 8: Create ECS Service 
 
-### Step 7.1: Deploy Report Pod
+1. Go to **ECS → Clusters → ecs-demo-cluster → Services → Create**.
+2. Task definition: `custom-httpd-task` 
+2. Task definition revision : `1` (new latest revision)
+3. Service name: `httpd-service`
+4. Launch type: EC2
+![ecs-service1](images/pic17.png)
+5. Desired tasks: 1
+![ecs-service2](images/pic18.png)
+7. Click **Create Service**.
+![service-created](images/pic19.png)
+8. Wait for the service deployment status to get completed.
 
-```bash
-cat <<EOF > report-pod.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: report-pod
-spec:
-  serviceAccountName: report-sa
-  containers:
-    - name: report-container
-      image: amazonlinux:2
-      command:
-        - /bin/sh
-        - -c
-        - |
-          yum update -y && \
-          yum install -y unzip curl less && \
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
-          unzip awscliv2.zip && \
-          ./aws/install && \
-          sleep 3600
-EOF
-
-
-kubectl apply -f report-pod.yaml
-kubectl get pods
-kubectl exec -it report-pod -- /bin/bash
-aws s3 ls s3://fintech-reports-bucket/
-```
-![s3-last](images/pic-s3-last.png)
-
-### Step 7.2: Deploy Transaction Pod
-
-```bash
-cat <<EOF > transaction-pod.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: transaction-pod
-spec:
-  serviceAccountName: transaction-sa
-  containers:
-    - name: transaction-container
-      image: amazonlinux:2
-      command: ["/bin/sh", "-c", "yum install -y unzip curl less && curl 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip' -o 'awscliv2.zip' && unzip awscliv2.zip && ./aws/install && sleep 3600"]
-EOF
-
-
-kubectl apply -f transaction-pod.yaml
-kubectl get pods
-kubectl exec -it transaction-pod -- /bin/bash
-aws dynamodb scan --table-name fintech-transactions
-```
-![s3-last](images/pic-dynamodb-last.png)
-
-* **Explanation:** Pods can now access only their respective AWS resources.
-
+    ![success](images/pic21.png)
 ---
 
-## Activity 8: Test Fine-Grained Access
+### Activity 9: Test Application on Port 80
 
-### Step 8.1: Transaction Pod cannot access S3
-
-```bash
-kubectl exec -it transaction-pod -- /bin/bash
-aws s3 ls s3://fintech-reports-bucket/
+1. Go to **ECS Console → Clusters → ecs-demo-cluster → Services → httpd-service → Tasks**.  
+2. Click on the running **EC2 instance ID** to open it in the **EC2 Console**.  
+![tasks-running](images/pic22.png)
+3. Copy the **Public IPv4 address** of the EC2 instance. 
+![ec2-running](images/pic23.png) 
+4. Copy the Public IP of the EC2 instance.  
+![ec2-running](images/pic24.png) 
+5. Open your browser and navigate to:
 ```
-
-* Expected: AccessDenied error.
-
-![s3-failed](images/pic-s3-fail.png)
-
-### Step 8.2: Report Pod cannot access DynamoDB
-
-```bash
-kubectl exec -it report-pod -- /bin/bash
-aws dynamodb scan --table-name fintech-transactions
+http://<EC2-Public-IP>
 ```
+* You should see your webpage served by the container.
+![web-page-loaded](images/pic20.png)
 
-* Expected: AccessDenied error.
-![dynamodb-failed](images/pic-dynamodb-fail.png)
 
 ---
 
 ## Summary
 
-* EKS cluster created and verified.
-* IRSA enabled for pod-level AWS access.
-* IAM policies and roles created for S3 and DynamoDB.
-* Kubernetes service accounts linked to IAM roles.
-* Pods deployed and verified for least privilege access.
-* AWS best practices followed throughout the lab.
+* You have successfully created and launched an **Amazon ECS cluster** using the EC2 launch type.  
+* You created an **ECR repository** to store your Docker images.  
+* You built a **custom HTTPD Docker image** and pushed it to ECR.  
+* You configured **IAM roles (ecsInstanceRole & ecsTaskExecutionRole)** for secure access.  
+* You deployed the container through an **ECS Task Definition and Service**.  
+* You validated the deployment by accessing the application on **port 80** via the EC2 Public IP.  
+
+---
 
 ## Conclusion
 
-In this guided lab, you successfully implemented IAM Roles for Service Accounts (IRSA) in Amazon EKS, enabling pods to securely access only the AWS resources they need. By creating fine-grained IAM policies, associating them with Kubernetes service accounts via trust policies, and deploying pods with these service accounts, you ensured least-privilege access in a multi-service environment. This approach enhances security, simplifies access management, and follows AWS best practices for pod-level permissions. 
+This project demonstrated the complete lifecycle of deploying a containerized application on AWS:  
+
+1. **Build → Push → Deploy → Validate** workflow using Docker, ECR, and ECS.  
+2. Integration of **IAM roles** to securely allow ECS tasks and EC2 instances to access ECR. 
+3. How ECS (EC2 launch type) simplifies container deployment by managing tasks and services automatically.  
+
+By completing this project, you now understand how to connect **EC2, ECS, ECR, Docker, and IAM** into a seamless DevOps workflow for containerized applications.  
+This knowledge forms the foundation for scaling to more advanced setups with **Fargate, Load Balancers, and CI/CD pipelines** in the future.  
+
+---
